@@ -8,34 +8,39 @@ seek to predict the target's next position"""
 
 # we define our radar position. a given coordinate is of the form (x,y)
 
-radar_position = np.array([0,0])
+#radar_position = np.array([0,0])
 
 
 class Target():
 
-    def __init__(self, x,y, vx, vy, N):
-        self.position = np.array([x,y])
-        self.positions = np.zeros((N,2))    # aggregated positions
-        self.positions[0] = [x,y]
-        #self.velocities = np.array([[vx, vy]])  # we will start with constant velocity for now
-        self.velocity = np.array([vx,vy])
+    def __init__(self, x0,y0, vx, vy, ax, ay=0):
+        self.x0 = x0
+        self.y0 = y0
+        self.vx = vx
+        self.vy = vy
+
+        self.position = np.array([x0,y0], dtype = float) #current position
+        self.positions = None
+        #self.velocities = np.array([[vx, vy]])  # unused for now; for when velocity is non constant
+        self.velocity = np.array([vx,vy], dtype = float)    # constant velocity
+        self.acceleration = np.array([ax, 0], dtype = float)
         self.step = 1 # indexing
 
+    def setup(self, N):
+        self.positions = np.zeros((N,2))
+        self.positions[0] = self.position
+        self.step = 1
 
 
-    def euler_update(self, dt):
-        # we need to update component-wise wrt x and y
+
+    def euler_update(self, dt): # we start with a simple euler forward algorithm
         
-        x_new = self.position[0] + self.velocity[0]*dt
-        y_new = self.position[1] + self.velocity[1]*dt
-        
-        self.position =np.array([x_new, y_new])
+        self.velocity += self.acceleration*dt   # first update velocity, then position below
+
+        self.position += self.velocity*dt
         self.positions[self.step] = self.position
         self.step += 1
         
-        #self.positions = np.vstack((self.positions, self.position))
-        #print(self.positions)
-
 
     def rk4_update(self, dt):
         pass
@@ -54,91 +59,141 @@ class Target():
 
 class Simulation():
     
-    def __init__(self, dt, T, method):
+    def __init__(self, dt, T, method, target):
         self.dt=dt
         self.T = T
         self.N = int(T/dt)
         self.method = method
+        self.target = target
+        
+        
+        self.target.setup(self.N)       # we initialize posiitons array of dimension N here
 
 
-    def run_simulation(self, target):
+    def run_simulation(self):
 
-        errors = []
         times = np.linspace(0, self.T, self.N)
 
-        for step in range(self.N - 1):
-            target.state_update(self.dt, self.method)
+        for _ in range(self.N-1):
+            self.target.state_update(self.dt, self.method)
+        return self.target.positions
 
-            # analytical solution at this time is
 
-
-        return target.positions
 
 
 
         
+def error_check():
+    trajectories = {}
+
+
+    analytic_solutions = {}
+    
+    errors = []
+
+    x0, y0 = 0, 0
+    vx, vy = 1, 1
+    ax = 0.5
+    T = 20
+    dt_values = [0.2, 0.1, 0.05, 0.025]
+
+
+        # Lists to store dt and corresponding errors for plotting
+    dts = []
+    average_errors = []
+    max_errors = []
+    #dt_values = [0.1]
+
+    for dt in dt_values:
+        N = int(T/dt)
+        #print(N)
+        # euler int
+        tar = Target(x0,y0,vx,vy, ax)
+        sim = Simulation(dt, T, method='euler', target=tar)
+        sim.run_simulation()
+
+        trajectories[dt] = tar.positions.tolist()
 
 
 
-# def run_simulation(target, dt, T, method):
-#     N = T/dt
-#     #print(N)
-#     for step in range(int(N)):
-#         target.state_update(dt, method)
-
-#     return target.positions
-
-
-
-
+        times = np.linspace(0, T, N+1)
+        analytic_positions = []
+        for t in times:
+            # x(t) = x0 + v0x*t + (1/2)*ax*t^2
+            x = x0 + vx*t + 0.5*ax*t**2
+            # y(t) = y0 + vy*t (no acceleration in y)
+            y = y0 + vy*t
+            analytic_positions.append([x,y])
+        analytic_solutions[dt] = analytic_positions
 
 
+        num = np.array(trajectories[dt])
+        analytic = np.array(analytic_solutions[dt])
 
-def error_check(sim, dt, T, x0, y0, vx, vy):
-    ### we need tocomapre to analytical solution for euler method
-
-
-        # analytivally we have x1 = x0 + vx*t
-        x_an  = x0 + vx*T
-        y_an = y0 + vy*T
-        r_anal= np.array([x_an,y_an])
-        #print(x_analytical, y_analytical)
-
-        #positions = run_simulation(target, dt, T, 'euler')
-        target = Target(x0,y0,vx,vy, sim.N)
-        positions = sim.run_simulation(target)
-
-        x_num, y_num = positions[-1]
-        #print(f'numerical: {x_num, y_num}')
-        #print(f'analytical: {x_an, y_an}')
-
-        error = np.sqrt((x_num-x_an)**2 + (y_num - y_an)**2)
-        print(f"Error at T={T}: {error}")
-        return error
-    #error = np.sqrt((x_num - r_anal[0])**2 +(r)
+        error_per_timestep = np.linalg.norm(num - analytic[:len(num)], axis=1)
+        average_error = np.mean(error_per_timestep)
+        max_error = np.max(error_per_timestep)
 
 
+        # Store for plotting
+        dts.append(dt)
+        average_errors.append(average_error)
+        max_errors.append(max_error)
 
+    # Create log-log plot
+    plt.figure(figsize=(10,6))
+    plt.loglog(dts, average_errors, 'bo-', label='Average Error')
+    plt.loglog(dts, max_errors, 'ro-', label='Maximum Error')
+    
+    # Add reference line (slope = 1)
+    reference_x = np.array([min(dts), max(dts)])
+    reference_y = reference_x * average_errors[-1]/dts[-1]  # Scale to match our data
+    plt.loglog(reference_x, reference_y, 'k--', label='Reference (slope = 1)')
+    
+    plt.xlabel('dt')
+    plt.ylabel('Error')
+    plt.title('Error Scaling with Timestep Size')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+    return dts, average_errors, max_errors
 
 
 def main():
     # run properties
-    T = 100
-    dt = 0.001
-
+    T = 10
+    dt = 0.1
     x0, y0 = 0, 0
     vx, vy = 1, 1
+    ax = 0.5  # adding a small constant acceleration in x
+
+    # target with acceleration
+    t1 = Target(x0, y0, vx, vy, ax)
+    sim = Simulation(dt, T, 'euler', t1)
+    positions = sim.run_simulation()
+
+    # positions = np.array(positions)
+    # plt.figure(figsize=(10,6))
+    # plt.plot(positions[:,0], positions[:,1], 'b.-', label='Trajectory')
+    # plt.xlabel('x position')
+    # plt.ylabel('y position')
+    # plt.title('Target Motion with Constant x-acceleration')
+    # plt.grid(True)
+    # plt.legend()
+    # plt.show()
 
 
-    #print(run_simulation(t1,dt,'euler',T))
-    #t1 = Target(x0,y0,vx,vy)
-    #sim.run_simulation(t1)
+    # print("\nFirst few positions:")
+    # print(positions[:5])
+    # print("\nLast few positions:")
+    # print(positions[-5:])
+    
+    error_check()
+    
+    #sim.run_simulation()
 
-    time_points = [10, 25, 50, 100]
-    for current_T in time_points:
-        sim = Simulation(dt,current_T,'euler')
-        error_check(sim, dt, current_T, x0, y0, vx, vy)
-
+#    error_check(sim,dt)
 
 if __name__ == '__main__':
     main()
