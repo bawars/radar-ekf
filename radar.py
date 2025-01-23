@@ -99,8 +99,6 @@ target_trajectory = positions_euler
 
 
 
-
-
 #####################################
 radar = Radar(position=(0,0), refresh_rate=0.1, noise=0.3)
 
